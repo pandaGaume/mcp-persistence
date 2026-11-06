@@ -1,0 +1,81 @@
+{
+  "name": "@cyanmycelium/mcp-persistence",
+  "version": "0.1.0",
+  "description": "Durable versioned documents and artifacts, published through an MCP broker slot.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/persistence.conformance.d.ts",
+      "import": "./dist/conformance/persistence.conformance.js"
+    },
+    "./protocol": {
+      "types": "./dist/contract/persistence.protocol.d.ts",
+      "import": "./dist/contract/persistence.protocol.js"
+    },
+    "./contracts/persistence.v1.json": "./contracts/persistence.v1.json"
+  },
+  "files": [
+    "dist",
+    "contracts",
+    "docs/mcp-contract.md",
+    "docs/assets/logo.png",
+    "docs/assets/mcp-broker-family.png"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.check.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && vitest run",
+    "start": "node dist/provider/main.js",
+    "dev": "node dist/provider/main.js --dev",
+    "contracts": "npm run build && node scripts/export-contract.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run contracts"
+  },
+  "dependencies": {
+    "@cyanmycelium/mcp-broker-provider": "0.4.1",
+    "@cyanmycelium/mcp-core": "1.4.1",
+    "@cyanmycelium/mcp-uns": "0.1.0"
+  },
+  "devDependencies": {
+    "@cyanmycelium/mcp-broker": "1.6.1",
+    "@types/node": "^22.0.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "author": "Guillaume Pelletier (CyanMycelium)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pandaGaume/mcp-persistence.git"
+  },
+  "homepage": "https://github.com/pandaGaume/mcp-persistence#readme",
+  "bugs": {
+    "url": "https://github.com/pandaGaume/mcp-persistence/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "mcp-persistence": "dist/provider/main.js"
+  },
+  "peerDependencies": {
+    "vitest": "^4.1.11",
+    "@cyanmycelium/mcp-broker": ">=1.6.1 <2"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    },
+    "@cyanmycelium/mcp-broker": {
+      "optional": true
+    }
+  }
+}

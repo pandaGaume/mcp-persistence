@@ -1,0 +1,4 @@
+Tool: built-in image_gen, transparent_background=true.
+Reference: mcp-vault/docs/assets/logo.png, style reference only.
+
+Use case: logo-brand. Create a new project mascot logo for mcp-persistence in the CyanMycelium MCP family. The provided image is a STYLE REFERENCE, not an edit target. Match its cute front-facing pixel-art panda, vivid cyan and electric blue highlights, dark navy outlines, glowing eyes, square pixel clusters, compact full-body silhouette and friendly expression. Replace the bao and chest padlock with durable storage symbols: panda holds a small stack of three luminous data archive cartridges, chest displays a simple cyan database cylinder with a tiny checkmark. Center the full mascot with ample transparent margin, no clipping. Actual transparent background. No text, letters, watermark, badge, bao or padlock. Single polished logo, readable at 180px in a GitHub README.

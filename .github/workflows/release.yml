@@ -1,0 +1,58 @@
+name: release mcp-persistence
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Validate package and release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          if (pkg.name !== "@cyanmycelium/mcp-persistence" || pkg.private === true) {
+            throw new Error("Expected the public mcp-persistence package");
+          }
+          if (!/^\d+\.\d+\.\d+$/.test(pkg.version) || process.env.RELEASE_TAG !== `v${pkg.version}`) {
+            throw new Error("A stable v<package.json version> tag is required");
+          }
+          NODE
+
+      - name: Enable npm OIDC trusted publishing
+        run: npm install -g npm@^11
+
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run contracts
+      - name: Check generated contracts
+        run: git diff --exit-code -- contracts/persistence.v1.json
+      - run: npm pack --dry-run
+
+      # prepublishOnly's typecheck, tests and contract generation ran explicitly above.
+      # npm obtains a short-lived credential through GitHub OIDC; no NPM_TOKEN secret.
+      - name: Publish to npm
+        run: npm publish --access public --ignore-scripts
