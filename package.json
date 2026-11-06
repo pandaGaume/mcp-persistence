@@ -1,6 +1,6 @@
 {
   "name": "@cyanmycelium/mcp-persistence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Durable versioned documents and artifacts, published through an MCP broker slot.",
   "type": "module",
   "license": "Apache-2.0",

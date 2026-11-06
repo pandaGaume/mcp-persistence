@@ -7,7 +7,7 @@
 
 Durable JSON documents, immutable revisions and streamed binary artifacts for the CyanMycelium MCP family. SQLite keeps revisions, references and idempotency; an internal file directory keeps artifact bytes. The broker decides access.
 
-**Status: initial release 0.1.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. This is a local single-writer backend, with integration tests, not a distributed storage service.
+**Status: early release 0.2.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. This is a local single-writer backend, with integration tests, not a distributed storage service.
 
 ```text
 Explorer / Mission Control / MCP client
