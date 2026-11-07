@@ -7,7 +7,7 @@
 
 Durable JSON documents, immutable revisions and streamed binary artifacts for the CyanMycelium MCP family. SQLite is the startup default; PostgreSQL and MySQL can store documents in a declared database selected through MCP. Credentials are resolved through mcp-vault and only references are stored locally. An internal file directory keeps local artifact bytes. The broker decides access.
 
-**Status: development after release 0.2.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. The default backend remains a local single-writer store. See [database selection and vault credentials](docs/databases-and-vault.md) for remote document storage, operator configuration, authorization and current artifact boundaries.
+**Status: development 0.3.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. The default backend remains a local single-writer store. See [database selection and vault credentials](docs/databases-and-vault.md) for remote document storage, operator configuration, authorization and current artifact boundaries.
 
 ```text
 Explorer / Mission Control / MCP client

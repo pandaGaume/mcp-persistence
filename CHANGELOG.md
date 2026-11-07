@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-11-06
 
 - Declare servers and databases through MCP, preserving the managed local/default SQLite startup registration.
 - Resolve credential references through a separate authenticated vault client on the broker; no secrets in registration metadata.
