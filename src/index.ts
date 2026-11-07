@@ -1,9 +1,15 @@
 export * from "./contract/persistence.types.js";
 export * from "./contract/persistence.store.js";
 export * from "./contract/errors.js";
+export * from "./contract/configuration.types.js";
+export * from "./configuration/sqlite.registry.js";
+export * from "./vault/credentials.resolver.js";
 export * from "./contract/persistence.protocol.js";
 export * from "./sqlite/sqlite.persistence.store.js";
 export * from "./server/declaration.js";
 export * from "./server/persistence.behavior.js";
 export * from "./server/persistence.slot.store.js";
 export * from "./provider/artifact.http.js";
+export { SqlDocumentStore, type IDocumentStore } from "./sql/sql.document.store.js";
+export { PersistenceDatabaseRouter, type IDatabaseRouter } from "./sql/database.router.js";
+export { sqlConnector, type ISqlTarget, type ISqlSession, type SqlConnect } from "./sql/sql.connection.js";

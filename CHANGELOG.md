@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Declare servers and databases through MCP, preserving the managed local/default SQLite startup registration.
+- Resolve credential references through a separate authenticated vault client on the broker; no secrets in registration metadata.
+- Store documents, revisions, references and idempotency in PostgreSQL or MySQL selected with databaseId; no automatic local fallback.
+- Add per-database authorization, operator SQL endpoint allowlisting, verified TLS and persistence.v1 contract revision 2.
+- Add real broker/vault and SQL integration scenarios with a reusable validation workflow.
+
 ## 0.2.0 - 2026-11-06
 
 - Add the GitHub Actions release workflow with npm OIDC trusted publishing.

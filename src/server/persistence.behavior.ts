@@ -6,6 +6,13 @@ import { PersistenceError } from "../contract/errors.js";
 import { fail, segment } from "../contract/validation.js";
 import { PersistenceResources } from "./declaration.js";
 import { PERSISTENCE_TOOLS, PERSISTENCE_RESOURCE_TEMPLATES, PERSISTENCE_TOOL_DESCRIPTIONS as EN } from "../contract/persistence.protocol.js";
+import type { IPersistenceRegistry } from "../contract/configuration.types.js";
+import type { ICredentialsResolver } from "../vault/credentials.resolver.js";
+import { PersistenceConfigurationService } from "./configuration.service.js";
+import type { IDatabaseRouter } from "../sql/database.router.js";
+
+export interface IPersistenceBehaviorOptions { namespace: string; registry?: IPersistenceRegistry; credentials?: ICredentialsResolver; databases?: IDatabaseRouter }
+function configurationName(name: string): boolean { return /^(server\.|database\.|credentials\.)/.test(name.replace(/^persistence\./, "")); }
 
 /** Broker caller references are request-scoped, not stable user ids. Keys are shared per namespace. */
 export const MCP_STORE_CONTEXT: IStoreContext = Object.freeze({ subject: "broker-namespace" });
@@ -20,13 +27,26 @@ const FR: Record<string, string> = {
     commitArtifact: "Vérifier et publier atomiquement un transfert terminé.", abortArtifact: "Annuler un transfert inactif.",
     getArtifact: "Lire les métadonnées ; les octets passent par le point HTTP authentifié.",
     uploadAccess: "Autoriser un flux de transfert et lire ses métadonnées cibles.",
+    "server.register": "Déclarer un serveur avec une référence vault. databaseId sélectionne le stockage PostgreSQL ou MySQL des documents.",
+    "server.get": "Lire la déclaration d'un serveur sans valeur secrète.",
+    "server.list": "Lister les serveurs autorisés, dont le serveur local configuré au démarrage.",
+    "database.register": "Déclarer une base sur un serveur existant avec une référence vault uniquement.",
+    "database.get": "Lire la déclaration d'une base sans valeur secrète.",
+    "database.list": "Lister les bases autorisées, avec filtre facultatif par serveur.",
+    "credentials.check": "Vérifier une référence vault avec l'identité du service, sans retourner le secret ni se connecter à une base.",
 };
 
 class PersistenceAdapter extends McpAdapterBase {
     private readonly paths: PersistenceResources;
-    constructor(private readonly store: IPersistenceStore, private readonly guard: IAccessGuard, root: string) { super("persistence"); this.paths = new PersistenceResources(root); }
+    private readonly configuration?: PersistenceConfigurationService;
+    private readonly databases?: IDatabaseRouter;
+    constructor(private readonly store: IPersistenceStore, private readonly guard: IAccessGuard, options: IPersistenceBehaviorOptions) {
+        super("persistence"); this.paths = new PersistenceResources(options.namespace);
+        this.databases = options.databases;
+        if (options.registry) this.configuration = new PersistenceConfigurationService(options.registry, guard, options.namespace, options.credentials);
+    }
     private check(capability: string, kind: "document" | "artifact", key: IDocumentKey): IAccessCheck {
-        return { capability: `persistence.${capability}`, resource: `persistence:${kind}:${segment(key.namespace)}/${segment(key.id)}`, resourcePath: this.paths[kind](key.namespace, key.id) };
+        return { capability: `persistence.${capability}`, resource: `persistence:${key.databaseId ?? "default"}:${kind}:${segment(key.namespace)}/${segment(key.id)}`, resourcePath: kind === "document" ? this.paths.document(key.namespace, key.id, key.databaseId) : this.paths.artifact(key.namespace, key.id) };
     }
     private async decisions(checks: IAccessCheck[], request?: IMcpRequestContext): Promise<IAccessDecision[]> {
         const decisions = await this.guard.authorizeAsync(checks, request);
@@ -57,35 +77,48 @@ class PersistenceAdapter extends McpAdapterBase {
     }
     async invoke(name: string, args: Args, request?: IMcpRequestContext): Promise<unknown> {
         if (name === "capabilities") return this.store.getCapabilitiesAsync();
+        if (configurationName(name)) {
+            if (!this.configuration) fail("unsupported_format", "No configuration registry is installed");
+            return this.configuration.invoke(name, args, request);
+        }
         const namespace = segment(args.namespace);
         const context = MCP_STORE_CONTEXT;
+        const databaseId = args.databaseId === undefined ? undefined : segment(args.databaseId);
+        const remote = databaseId !== undefined && databaseId !== "default";
+        if (remote) await this.allowed([{ capability: "persistence.read", resource: `persistence:database:${databaseId}`, resourcePath: this.paths.database(databaseId) }], request);
+        // Resolve lazily, after document authorization, so refused calls never open a database connection.
+        const selected = async () => {
+            if (!remote) return this.store;
+            if (!this.databases) fail("unsupported_format", "No remote database router is installed");
+            return this.databases.resolveAsync(databaseId);
+        };
         switch (name) {
             case "list": {
-                const page = await this.store.listAsync(args as unknown as IListDocuments, context);
-                const decisions = await this.decisions(page.items.map(d => this.check("read", "document", d)), request);
+                const page = await (await selected()).listAsync(args as unknown as IListDocuments, context);
+                const decisions = await this.decisions(page.items.map(d => this.check("read", "document", { ...d, databaseId })), request);
                 return { ...page, items: page.items.filter((_, i) => decisions[i]?.allowed && !decisions[i]?.constraints) };
             }
             case "get":
             case "listRevisions": {
-                const key = { namespace, id: segment(args.id) };
+                const key = { namespace, id: segment(args.id), databaseId };
                 await this.allowed([this.check("read", "document", key)], request);
-                return name === "get" ? this.store.getAsync(args as unknown as IDocumentKey & { revision?: number }, context)
-                    : this.store.listRevisionsAsync(args as unknown as IDocumentKey & IPageRequest, context);
+                return name === "get" ? (await selected()).getAsync(args as unknown as IDocumentKey & { revision?: number }, context)
+                    : (await selected()).listRevisionsAsync(args as unknown as IDocumentKey & IPageRequest, context);
             }
             case "put": {
                 const input = args as unknown as IPutDocument;
                 if (!Array.isArray(input.references)) fail("invalid_request", "Expected references array");
-                const checks = [this.check("write", "document", { namespace, id: segment(args.id) })];
+                const checks = [this.check("write", "document", { namespace, id: segment(args.id), databaseId })];
                 const caps = await this.store.getCapabilitiesAsync();
                 if (input.references.length > caps.limits.maxReferences) fail("invalid_request", "Too many references");
-                for (const ref of input.references) { if (!ref || (ref.type !== "document" && ref.type !== "artifact")) fail("invalid_request", "Invalid reference"); checks.push(this.check("read", ref.type, ref)); }
-                return this.mutation(checks, request, () => this.store.putAsync(input, context));
+                for (const ref of input.references) { if (!ref || (ref.type !== "document" && ref.type !== "artifact")) fail("invalid_request", "Invalid reference"); checks.push(this.check("read", ref.type, { ...ref, databaseId })); }
+                return this.mutation(checks, request, async () => (await selected()).putAsync(input, context));
             }
-            case "delete": return this.mutation([this.check("delete", "document", { namespace, id: segment(args.id) })], request, () => this.store.deleteAsync(args as unknown as IDeleteDocument, context));
+            case "delete": return this.mutation([this.check("delete", "document", { namespace, id: segment(args.id), databaseId })], request, async () => (await selected()).deleteAsync(args as unknown as IDeleteDocument, context));
             case "purge": {
                 const input = args as unknown as IPurge;
                 if (!input.target || (input.target.type !== "document" && input.target.type !== "artifact")) fail("invalid_request", "Invalid purge target");
-                return this.mutation([this.check("admin", input.target.type, { namespace, id: segment(input.target.id) })], request, () => this.store.purgeAsync(input, context));
+                return this.mutation([this.check("admin", input.target.type, { namespace, id: segment(input.target.id), databaseId })], request, async () => (await selected()).purgeAsync(input, context));
             }
             case "beginArtifact": return this.mutation([this.check("write", "artifact", { namespace, id: "_new" })], request, () => this.store.beginArtifactAsync(args as unknown as IBeginArtifact, context));
             case "uploadAccess":
@@ -122,6 +155,10 @@ class PersistenceAdapter extends McpAdapterBase {
     }
     async readResourceAsync(uri: string, request?: IMcpRequestContext): Promise<McpResourceContent | undefined> {
         if (uri === CAPABILITIES_URI) return { uri, mimeType: "application/json", text: JSON.stringify(await this.store.getCapabilitiesAsync()) };
+        const configuration = /^persistence:\/\/(servers|databases)\/([^/]+)$/.exec(uri);
+        if (configuration) return { uri, mimeType: "application/json", text: JSON.stringify(await this.invoke(configuration[1] === "servers" ? "server.get" : "database.get", { id: decodeURIComponent(configuration[2]!) }, request)) };
+        const selected = /^persistence:\/\/databases\/([^/]+)\/documents\/([^/]+)\/([^/]+)(?:\/revisions\/(\d+))?$/.exec(uri);
+        if (selected) return { uri, mimeType: "application/json", text: JSON.stringify(await this.invoke("get", { databaseId: decodeURIComponent(selected[1]!), namespace: decodeURIComponent(selected[2]!), id: decodeURIComponent(selected[3]!), ...(selected[4] ? { revision: Number(selected[4]) } : {}) }, request)) };
         const match = /^persistence:\/\/(documents|artifacts)\/([^/]+)\/([^/]+)(?:\/revisions\/(\d+))?$/.exec(uri);
         if (!match || (match[1] === "artifacts" && match[4])) return undefined;
         const args = { namespace: decodeURIComponent(match[2]!), id: decodeURIComponent(match[3]!), ...(match[4] ? { revision: Number(match[4]) } : {}) };
@@ -130,15 +167,19 @@ class PersistenceAdapter extends McpAdapterBase {
 }
 
 export class PersistenceBehavior extends McpBehavior {
-    constructor(store: IPersistenceStore, guard: IAccessGuard, options: { namespace: string }) { super(new PersistenceAdapter(store, guard, options.namespace), { namespace: "persistence" }); }
+    private readonly configurationEnabled: boolean;
+    constructor(store: IPersistenceStore, guard: IAccessGuard, options: IPersistenceBehaviorOptions) {
+        super(new PersistenceAdapter(store, guard, options), { namespace: "persistence" });
+        this.configurationEnabled = !!options.registry;
+    }
     protected override _buildResources(): McpResource[] { return [{ uri: CAPABILITIES_URI, name: "Persistence capabilities", mimeType: "application/json", description: EN.capabilities! }]; }
     protected override _buildTemplate(): McpResourceTemplate[] {
-        return structuredClone(PERSISTENCE_RESOURCE_TEMPLATES);
+        return structuredClone(this.configurationEnabled ? PERSISTENCE_RESOURCE_TEMPLATES : PERSISTENCE_RESOURCE_TEMPLATES.slice(0, 3));
     }
     protected override _buildGrammars(): Map<string, McpGrammar> {
         return new Map([["default:en", EN], ["default:fr", FR]].map(([key, descriptions]) => [key as string, McpGrammar.fromJSON({ tools: Object.fromEntries(Object.entries(descriptions!).map(([name, description]) => [`persistence.${name}`, { description }])) })]));
     }
     protected override _buildTools(): McpTool[] {
-        return structuredClone(PERSISTENCE_TOOLS);
+        return structuredClone(this.configurationEnabled ? PERSISTENCE_TOOLS : PERSISTENCE_TOOLS.filter(t => !configurationName(t.name)));
     }
 }

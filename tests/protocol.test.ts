@@ -9,7 +9,7 @@ describe("published persistence.v1 contract", () => {
     });
     it("provides complete schemas with resolvable references for all tools", () => {
         const ajv = new Ajv({ strict: false, validateFormats: false });
-        expect(PERSISTENCE_TOOLS).toHaveLength(12);
+        expect(PERSISTENCE_TOOLS).toHaveLength(19);
         for (const tool of PERSISTENCE_TOOLS) {
             expect(() => ajv.compile(tool.inputSchema)).not.toThrow();
             expect(() => ajv.compile(tool.outputSchema)).not.toThrow();

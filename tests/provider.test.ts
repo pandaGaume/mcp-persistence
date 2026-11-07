@@ -34,6 +34,10 @@ describe("provider entry point", () => {
             });
             client = new McpClient({ name: "dev-test", version: "1" }, new StreamableHttpTransport(`http://127.0.0.1:${brokerPort}/persistence/mcp`), 5000);
             await client.connect();
+            const local = await client.callTool("persistence.server.get", { id: "local" });
+            expect(local.structuredContent).toMatchObject({ id: "local", driver: "sqlite", managed: true });
+            const defaultDatabase = await client.callTool("persistence.database.get", { id: "default" });
+            expect(defaultDatabase.structuredContent).toMatchObject({ id: "default", serverId: "local", managed: true });
             const result = await client.callTool("persistence.put", { namespace: "explorer", id: "dev", expectedRevision: 0, kind: "checkpoint", schemaVersion: "1", payload: {}, references: [], idempotencyKey: "dev-one" });
             expect(result.isError).not.toBe(true); expect(output).toContain("openGuard enabled");
         } finally { client?.disconnect(); child.kill(); if (child.exitCode === null) await once(child, "exit"); }

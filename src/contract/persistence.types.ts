@@ -1,7 +1,7 @@
 /** persistence.v1 documents and immutable artifacts. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-export interface IDocumentKey { namespace: string; id: string }
-export interface IDocumentReference extends IDocumentKey { type: "document"; revision: number }
+export interface IDocumentKey { namespace: string; id: string; databaseId?: string }
+export interface IDocumentReference { type: "document"; namespace: string; id: string; revision: number }
 export interface IArtifactReference { type: "artifact"; namespace: string; id: string }
 export interface IDocument extends IDocumentKey {
     kind: string;
@@ -24,7 +24,7 @@ export interface IPutDocument extends IDocumentKey, IMutation {
 }
 export interface IPageRequest { limit?: number; cursor?: string }
 export interface IPage<T> { items: readonly T[]; nextCursor?: string }
-export interface IListDocuments extends IPageRequest { namespace: string; kind?: string; includeDeleted?: boolean }
+export interface IListDocuments extends IPageRequest { namespace: string; databaseId?: string; kind?: string; includeDeleted?: boolean }
 export interface IDeleteDocument extends IDocumentKey, IMutation { expectedRevision: number }
 export interface IArtifact {
     namespace: string;
@@ -47,6 +47,7 @@ export interface IUpload { namespace: string; artifactId: string; uploadId: stri
 export interface IFinishArtifact extends IMutation { namespace: string; uploadId: string }
 export interface IPurge extends IMutation {
     namespace: string;
+    databaseId?: string;
     target: { type: "document"; id: string; revision: number } | { type: "artifact"; id: string };
 }
 /** Internal trusted context, supplied by middleware; never accepted from tool arguments. */

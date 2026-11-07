@@ -9,12 +9,13 @@ import { DirectTransport } from "@cyanmycelium/mcp-broker-provider";
 import { McpClient, McpServerBuilder, type IMcpServer } from "@cyanmycelium/mcp-core";
 import { StreamableHttpTransport } from "@cyanmycelium/mcp-core/node";
 import { BrokerAccessGuard } from "@cyanmycelium/mcp-uns";
-import { SqlitePersistenceStore, PersistenceBehavior, PersistenceSlotStore, PERSISTENCE_TOOLS, buildPersistenceDeclaration, createArtifactTransferServer } from "../src/index.js";
+import { SqlitePersistenceStore, SqlitePersistenceRegistry, PersistenceBehavior, PersistenceSlotStore, PERSISTENCE_TOOLS, buildPersistenceDeclaration, createArtifactTransferServer } from "../src/index.js";
 import { validateSlotClient } from "./protocol.validator.js";
 import { describePersistenceStoreConformance } from "../src/conformance/persistence.conformance.js";
 
 describe("persistence through a real broker", () => {
     let broker: ITestBroker, disk: SqlitePersistenceStore, server: IMcpServer;
+    let registry: SqlitePersistenceRegistry;
     let http: ReturnType<typeof createArtifactTransferServer>, transferUrl: string;
     let writer: PersistenceSlotStore, reader: PersistenceSlotStore, foreign: PersistenceSlotStore;
     const clients: McpClient[] = [];
@@ -41,8 +42,9 @@ describe("persistence through a real broker", () => {
             },
         });
         disk = new SqlitePersistenceStore({ directory: mkdtempSync(join(tmpdir(), "mcp-persistence-broker-")), allowFileSyncOnly: process.platform === "win32" });
+        registry = new SqlitePersistenceRegistry(disk.directory);
         const transport = new DirectTransport(broker.providerUrl("persistence"), { secret: broker.providerSecret("persistence") });
-        server = new McpServerBuilder().withName("persistence").withTransport(transport).register(new PersistenceBehavior(disk, new BrokerAccessGuard(transport.broker), { namespace: root })).build();
+        server = new McpServerBuilder().withName("persistence").withTransport(transport).register(new PersistenceBehavior(disk, new BrokerAccessGuard(transport.broker), { namespace: root, registry })).build();
         await server.start(); expect((await transport.broker.declare(buildPersistenceDeclaration({ version: "1", namespace: root }))).accepted).toBe(true);
         http = createArtifactTransferServer({ store: disk, brokerMcpUrl: broker.mcpUrl("persistence") });
         await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
@@ -52,7 +54,7 @@ describe("persistence through a real broker", () => {
     afterAll(async () => {
         for (const client of clients) client.disconnect();
         if (http) await new Promise<void>(resolve => http.close(() => resolve()));
-        await server?.stop?.(); await disk?.closeAsync(); await broker?.stop();
+        await server?.stop?.(); await registry?.closeAsync(); await disk?.closeAsync(); await broker?.stop();
     });
     describePersistenceStoreConformance("remote contract", () => writer, context);
     it("filters lists and protects revisions without trusting client subject", async () => {
@@ -87,7 +89,7 @@ describe("persistence through a real broker", () => {
             expect(tool.inputSchema).toEqual(contract.inputSchema);
             expect(tool.outputSchema).toEqual(contract.outputSchema);
         }
-        expect((await writerClient.listResourceTemplates()).length).toBe(3);
+        expect((await writerClient.listResourceTemplates()).length).toBe(7);
         const doc = (await writer.listAsync({ namespace: "explorer" }, context)).items[0]!;
         const resource = await writerClient.readResource(`persistence://documents/explorer/${doc.id}`);
         expect(JSON.stringify(resource)).toContain(doc.id);

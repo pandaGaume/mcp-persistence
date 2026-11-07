@@ -1,4 +1,4 @@
-# Contrat MCP persistence.v1, révision 1
+# Contrat MCP persistence.v1, révision 2
 
 Ce document et [contracts/persistence.v1.json](../contracts/persistence.v1.json) constituent le contrat pour développer les clients indépendamment du backend. Le manifeste JSON fournit les schémas complets `inputSchema` et `outputSchema` de `tools/list`, les ressources, templates et routes de transfert. Les définitions TypeScript se trouvent dans [src/contract/](../src/contract/).
 
@@ -66,7 +66,21 @@ Les propriétés inconnues sont interdites dans les arguments des outils. `paylo
 
 ## Outils
 
-Tous les résultats ci-dessous désignent structuredContent. `namespace` est toujours requis, sauf pour capabilities. Les champs suivis de `?` sont optionnels.
+La révision 2 ajoute les déclarations de serveurs/bases, les références vault et le stockage réel des documents sur PostgreSQL/MySQL. Voir [le processus complet](databases-and-vault.md). Les outils `get`, `put`, `list`, `listRevisions`, `delete` et `purge` acceptent désormais `databaseId?`. Son absence, ou `default`, garde le SQLite local. Les outils d'artefacts restent sur le backend local et n'acceptent pas ce paramètre.
+
+| Outil de configuration | Arguments | Résultat |
+|---|---|---|
+| `persistence.server.register` | `id,driver,host?,port?,credentialsRef?,expectedRevision,idempotencyKey` | serveur et métadonnées de révision |
+| `persistence.server.get` | `id` | déclaration lisible |
+| `persistence.server.list` | `limit?,cursor?` | page filtrée de serveurs |
+| `persistence.database.register` | `id,serverId,name,credentialsRef?,expectedRevision,idempotencyKey` | base et métadonnées de révision |
+| `persistence.database.get` | `id` | déclaration lisible |
+| `persistence.database.list` | `serverId?,limit?,cursor?` | page filtrée de bases |
+| `persistence.credentials.check` | `target:"server"\|"database",id` | disponibilité et version, sans contenu secret |
+
+`credentialsRef` vaut `{slot,path,version?}`. Les champs secrets, DSN et propriétés inconnues sont refusés. Les déclarations exigent `persistence.configure` ; les lectures exigent `persistence.read`. Les templates supplémentaires sont `persistence://servers/{id}`, `persistence://databases/{id}` et `persistence://databases/{databaseId}/documents/{namespace}/{id}`, avec `/revisions/{revision}` pour la dernière forme.
+
+Tous les résultats ci-dessous désignent structuredContent. `namespace` est requis pour les outils de données, sauf capabilities. Les champs suivis de `?` sont optionnels.
 
 | Outil | Arguments | Résultat |
 |---|---|---|

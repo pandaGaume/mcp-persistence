@@ -2,6 +2,7 @@ import type { IPersistenceStore } from "../contract/persistence.store.js";
 import type { IArtifact, IBeginArtifact, IDeleteDocument, IDocument, IDocumentKey, IFinishArtifact, IListDocuments, IPage, IPageRequest, IPersistenceCapabilities, IPurge, IPutDocument, IStoreContext, IUpload } from "../contract/persistence.types.js";
 import { PersistenceError, type PersistenceErrorCode } from "../contract/errors.js";
 import { fail, segment } from "../contract/validation.js";
+import type { ICheckCredentials, ICredentialsCheck, IListDatabases, IPersistenceRegistry, IRegisteredDatabase, IRegisteredServer, IRegisterDatabase, IRegisterServer } from "../contract/configuration.types.js";
 
 export interface ISlotClient {
     callTool(name: string, args: Record<string, unknown>): Promise<{ content?: readonly unknown[]; structuredContent?: unknown; isError?: boolean }>;
@@ -23,7 +24,7 @@ export interface ITransferClientOptions {
     /** The same bearer credentials used by the MCP client. Never sent to an arbitrary redirected URL. */
     headers?: () => Record<string, string>;
 }
-export class PersistenceSlotStore implements IPersistenceStore {
+export class PersistenceSlotStore implements IPersistenceStore, IPersistenceRegistry {
     constructor(readonly id: string, private readonly client: ISlotClient, private readonly transfer?: ITransferClientOptions) {
         if (transfer) {
             const url = new URL(transfer.baseUrl);
@@ -35,17 +36,24 @@ export class PersistenceSlotStore implements IPersistenceStore {
         return slotPayload(await this.client.callTool(`persistence.${method}`, { ...request })) as T;
     }
     getCapabilitiesAsync(): Promise<IPersistenceCapabilities> { return this.call("capabilities", {}); }
-    getAsync(r: IDocumentKey & { revision?: number }, c: IStoreContext): Promise<IDocument> { return this.call("get", { namespace: r.namespace, id: r.id, ...(r.revision === undefined ? {} : { revision: r.revision }) }, c); }
+    getAsync(r: IDocumentKey & { revision?: number }, c: IStoreContext): Promise<IDocument> { return this.call("get", { namespace: r.namespace, id: r.id, ...(r.databaseId === undefined ? {} : { databaseId: r.databaseId }), ...(r.revision === undefined ? {} : { revision: r.revision }) }, c); }
     putAsync(r: IPutDocument, c: IStoreContext): Promise<IDocument> { return this.call("put", r, c); }
     listAsync(r: IListDocuments, c: IStoreContext): Promise<IPage<IDocument>> { return this.call("list", r, c); }
-    listRevisionsAsync(r: IDocumentKey & IPageRequest, c: IStoreContext): Promise<IPage<IDocument>> { return this.call("listRevisions", { namespace: r.namespace, id: r.id, ...(r.limit === undefined ? {} : { limit: r.limit }), ...(r.cursor === undefined ? {} : { cursor: r.cursor }) }, c); }
+    listRevisionsAsync(r: IDocumentKey & IPageRequest, c: IStoreContext): Promise<IPage<IDocument>> { return this.call("listRevisions", { namespace: r.namespace, id: r.id, ...(r.databaseId === undefined ? {} : { databaseId: r.databaseId }), ...(r.limit === undefined ? {} : { limit: r.limit }), ...(r.cursor === undefined ? {} : { cursor: r.cursor }) }, c); }
     deleteAsync(r: IDeleteDocument, c: IStoreContext): Promise<IDocument> { return this.call("delete", r, c); }
     purgeAsync(r: IPurge, c: IStoreContext): Promise<void> { return this.call("purge", r, c); }
     beginArtifactAsync(r: IBeginArtifact, c: IStoreContext): Promise<IUpload> { return this.call("beginArtifact", r, c); }
     inspectUploadAsync(namespace: string, uploadId: string, c: IStoreContext): Promise<IUpload> { return this.call("uploadAccess", { namespace, uploadId }, c); }
     commitArtifactAsync(r: IFinishArtifact, c: IStoreContext): Promise<IArtifact> { return this.call("commitArtifact", r, c); }
     abortArtifactAsync(r: IFinishArtifact, c: IStoreContext): Promise<void> { return this.call("abortArtifact", r, c); }
-    getArtifactAsync(r: IDocumentKey, c: IStoreContext): Promise<IArtifact> { return this.call("getArtifact", { namespace: r.namespace, id: r.id }, c); }
+    getArtifactAsync(r: IDocumentKey, c: IStoreContext): Promise<IArtifact> { if (r.databaseId && r.databaseId !== "default") fail("unsupported_format", "Artifacts use the default local backend"); return this.call("getArtifact", { namespace: r.namespace, id: r.id }, c); }
+    registerServerAsync(r: IRegisterServer, c: IStoreContext): Promise<IRegisteredServer> { return this.call("server.register", r, c); }
+    getServerAsync(id: string, c: IStoreContext): Promise<IRegisteredServer> { return this.call("server.get", { id }, c); }
+    listServersAsync(r: IPageRequest, c: IStoreContext): Promise<IPage<IRegisteredServer>> { return this.call("server.list", r, c); }
+    registerDatabaseAsync(r: IRegisterDatabase, c: IStoreContext): Promise<IRegisteredDatabase> { return this.call("database.register", r, c); }
+    getDatabaseAsync(id: string, c: IStoreContext): Promise<IRegisteredDatabase> { return this.call("database.get", { id }, c); }
+    listDatabasesAsync(r: IListDatabases, c: IStoreContext): Promise<IPage<IRegisteredDatabase>> { return this.call("database.list", r, c); }
+    checkCredentialsAsync(r: ICheckCredentials, c: IStoreContext): Promise<ICredentialsCheck> { return this.call("credentials.check", r, c); }
     private async response(path: string, init: RequestInit): Promise<Response> {
         if (!this.transfer) fail("unsupported_format", "Configure the HTTP transfer endpoint");
         const response = await fetch(`${this.transfer.baseUrl.replace(/\/$/, "")}${path}`, { ...init, headers: { ...this.transfer.headers?.(), ...init.headers }, redirect: "error" });
@@ -63,6 +71,7 @@ export class PersistenceSlotStore implements IPersistenceStore {
         await this.response(`/uploads/${segment(r.namespace)}/${segment(r.uploadId)}`, { method: "PUT", body: stream, signal: c.signal, duplex: "half" } as RequestInit);
     }
     async readArtifactAsync(r: IDocumentKey, c: IStoreContext): Promise<AsyncIterable<Uint8Array>> {
+        if (r.databaseId && r.databaseId !== "default") fail("unsupported_format", "Artifacts use the default local backend");
         const response = await this.response(`/artifacts/${segment(r.namespace)}/${segment(r.id)}`, { signal: c.signal });
         if (!response.body) fail("transfer_incomplete", "Missing artifact response body");
         const body = response.body;

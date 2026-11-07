@@ -4,3 +4,4 @@ data/
 *.log
 *.tsbuildinfo
 .env
+.sql-test-tools/

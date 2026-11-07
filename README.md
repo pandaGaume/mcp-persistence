@@ -5,9 +5,9 @@
 
 # mcp-persistence
 
-Durable JSON documents, immutable revisions and streamed binary artifacts for the CyanMycelium MCP family. SQLite keeps revisions, references and idempotency; an internal file directory keeps artifact bytes. The broker decides access.
+Durable JSON documents, immutable revisions and streamed binary artifacts for the CyanMycelium MCP family. SQLite is the startup default; PostgreSQL and MySQL can store documents in a declared database selected through MCP. Credentials are resolved through mcp-vault and only references are stored locally. An internal file directory keeps local artifact bytes. The broker decides access.
 
-**Status: early release 0.2.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. This is a local single-writer backend, with integration tests, not a distributed storage service.
+**Status: development after release 0.2.0.** Node.js 22.13 or later is required; its built-in `node:sqlite` API is experimental on Node 22. The default backend remains a local single-writer store. See [database selection and vault credentials](docs/databases-and-vault.md) for remote document storage, operator configuration, authorization and current artifact boundaries.
 
 ```text
 Explorer / Mission Control / MCP client
@@ -18,7 +18,8 @@ Explorer / Mission Control / MCP client
                   | broker decisions per resource
           IPersistenceStore
                   |
-     SQLite revisions + internal artifact files
+     SQLite (default), PostgreSQL or MySQL documents
+     Local files for default-backend artifacts
 
 Binary upload/download -> loopback HTTP endpoint
                   | forwards caller bearer to a fresh broker MCP check
@@ -29,7 +30,7 @@ Applications own document schemas, migrations and scene restoration. Persistence
 
 ## MCP contract for client development
 
-Start with the [wire contract and examples](docs/mcp-contract.md), the [machine-readable JSON schemas](contracts/persistence.v1.json), and the [TypeScript store interface](src/contract/persistence.store.ts). These describe `persistence.v1`, revision 1, independently of SQLite. Import `@cyanmycelium/mcp-persistence/protocol` for backend-independent tool schemas or load `@cyanmycelium/mcp-persistence/contracts/persistence.v1.json`. The behavior publishes the same tool definitions used to generate the manifest. Tests validate live MCP inputs and outputs against these schemas.
+Start with the [wire contract and examples](docs/mcp-contract.md), the [machine-readable JSON schemas](contracts/persistence.v1.json), and the [TypeScript store interface](src/contract/persistence.store.ts). These describe `persistence.v1`, revision 2, independently of SQLite. Import `@cyanmycelium/mcp-persistence/protocol` for backend-independent tool schemas or load `@cyanmycelium/mcp-persistence/contracts/persistence.v1.json`. The behavior publishes the same tool definitions used to generate the manifest. Tests validate live MCP inputs and outputs against these schemas.
 
 ```sh
 npm run contracts
@@ -89,6 +90,10 @@ Do not carry `--dev` into the service command. `auth.dev` belongs to the broker 
 | `MCP_PERSISTENCE_TRANSFER_PORT` | `3001`, loopback HTTP listener |
 | `MCP_PERSISTENCE_LOCALE` | `en`, or `fr` for mcp-core grammar |
 | `MCP_PERSISTENCE_ALLOW_FILE_SYNC_ONLY` | `1` explicitly permits weaker Windows file durability |
+| `MCP_PERSISTENCE_VAULT_TOKEN` | separate client bearer for vault, optional for local SQLite |
+| `MCP_PERSISTENCE_VAULT_SLOT` | `vault`, dedicated slot on the same broker |
+| `MCP_PERSISTENCE_VAULT_PREFIX` | `persistence`, allowed secret subtree |
+| `MCP_PERSISTENCE_SQL_TARGETS` | `[]`, operator allowlist of SQL endpoints; see [database process](docs/databases-and-vault.md) |
 
 The library's `ISqlitePersistenceOptions` configures size limits and minimum retention. Purge is disabled by infinite retention unless a finite `retentionMs` is explicitly configured in the application assembly. There is no automatic retention job.
 
@@ -122,6 +127,8 @@ The direct store is an internal trusted API. A remote store ignores `context.sub
 | `persistence.uploadAccess`, `commitArtifact`, `abortArtifact` | `persistence.write` on the generated artifact target |
 | `persistence.getArtifact` | `persistence.read` on the artifact |
 | `persistence.purge` | `persistence.admin`, plus retention/reference checks |
+| `persistence.server.register`, `database.register`, `credentials.check` | `persistence.configure`, metadata only with vault references |
+| `persistence.server.get/list`, `database.get/list` | `persistence.read`, per declaration |
 
 Each name above has the `persistence.` prefix. Documents and artifacts occupy `<root>/namespaces/<namespace>/documents/<id>` and `<root>/namespaces/<namespace>/artifacts/<id>`. Namespace and id are single validated segments, at most 128 ASCII letters, digits, dots, underscores or hyphens, beginning with a letter, digit or underscore. Business UNS identifiers remain application data.
 

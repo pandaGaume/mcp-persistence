@@ -1,0 +1,46 @@
+name: validate persistence
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: persistence
+          POSTGRES_PASSWORD: isolated-test-password
+          POSTGRES_DB: persistence_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-root-password
+          MYSQL_USER: persistence
+          MYSQL_PASSWORD: isolated-test-password
+          MYSQL_DATABASE: persistence_test
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -h 127.0.0.1" --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      PERSISTENCE_TEST_POSTGRES: '{"host":"127.0.0.1","port":5432,"database":"persistence_test","username":"persistence","password":"isolated-test-password"}'
+      PERSISTENCE_TEST_MYSQL: '{"host":"127.0.0.1","port":3306,"database":"persistence_test","username":"persistence","password":"isolated-test-password"}'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run contracts
+      - run: git diff --exit-code -- contracts/persistence.v1.json
